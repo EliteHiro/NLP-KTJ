@@ -1,0 +1,27 @@
+body {
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.glass {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.glass-strong {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, #a78bfa, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+  margin: 12px 0;
+}

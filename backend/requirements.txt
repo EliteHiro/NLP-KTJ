@@ -1,0 +1,19 @@
+# --- Core backend ---
+fastapi
+uvicorn
+pydantic
+python-dotenv
+
+# --- PDF loading ---
+pypdf
+
+# --- NLP / RAG ---
+langchain
+langchain-community
+sentence-transformers
+faiss-cpu
+
+# --- Utils ---
+numpy
+scikit-learn
+tqdm

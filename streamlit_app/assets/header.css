@@ -1,0 +1,14 @@
+.header {
+  padding: 20px;
+  margin-bottom: 12px;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.header-subtitle {
+  font-size: 12px;
+  color: #94a3b8;
+}
