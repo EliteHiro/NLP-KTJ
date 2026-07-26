@@ -1,52 +1,104 @@
+import os
 import logging
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from groq import Groq
+
 from app.nlp.pdf_loader import PDFLoader
 from app.nlp.chunker import Chunker
-from app.nlp.embedder import Embedder
-from app.nlp.vector_store import VectorStore
-from app.nlp.retriever import Retriever
 from app.core.config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────
-# Singleton: build / load the index ONCE
-# ──────────────────────────────────────────────
+# ──────────────────────────────────────────────────────
+# Load PDF → Chunk → Build TF-IDF index  (once at startup)
+# ──────────────────────────────────────────────────────
 PDF_PATH = str(DATA_DIR / "Annual-Report-2024-25.pdf")
-INDEX_DIR = str(DATA_DIR / "faiss_index")
 
-_embedder = Embedder()
-_vector_store = VectorStore(path=INDEX_DIR)
+logger.info("Loading PDF and building TF-IDF index...")
+_loader = PDFLoader(PDF_PATH)
+_documents = _loader.load()
 
-if _vector_store.is_built():
-    logger.info("Loading pre-built FAISS index from disk...")
-    _vector_store.load()
-else:
-    logger.info("No index found — building from PDF (one-time)...")
-    loader = PDFLoader(PDF_PATH)
-    documents = loader.load()
-    chunker = Chunker()
-    chunks = chunker.chunk_documents(documents)
-    embedded_chunks = _embedder.embed_chunks(chunks)
-    _vector_store.build(embedded_chunks)
-    logger.info("FAISS index built and saved.")
+_chunker = Chunker(chunk_size=800, chunk_overlap=150)
+_chunks = _chunker.chunk_documents(_documents)
+_chunk_texts = [c["text"] for c in _chunks]
 
-_retriever = Retriever(_vector_store)
+_vectorizer = TfidfVectorizer(stop_words="english", max_features=10000)
+_tfidf_matrix = _vectorizer.fit_transform(_chunk_texts)
+logger.info(f"TF-IDF index ready: {len(_chunks)} chunks indexed.")
+
+# ── Groq client ──────────────────────────────────────
+_groq_key = os.environ.get("GROQ_API_KEY", "")
+_groq_client = Groq(api_key=_groq_key) if _groq_key else None
+
+
+def _retrieve(query: str, top_k: int = 5):
+    """Find the top-k most relevant chunks using TF-IDF cosine similarity."""
+    query_vec = _vectorizer.transform([query])
+    scores = cosine_similarity(query_vec, _tfidf_matrix).flatten()
+
+    # Get top-k indices sorted by score (descending)
+    top_indices = scores.argsort()[-top_k:][::-1]
+    results = []
+    for idx in top_indices:
+        if scores[idx] > 0.01:  # filter out irrelevant noise
+            results.append({
+                "text": _chunks[idx]["text"],
+                "metadata": _chunks[idx]["metadata"],
+                "score": float(scores[idx]),
+            })
+    return results
+
+
+def _generate_answer(query: str, context_chunks) -> str:
+    """Use Groq LLM to generate an answer from the retrieved chunks."""
+    if not _groq_client:
+        # No API key — fall back to returning raw chunks
+        parts = []
+        for c in context_chunks:
+            page = c.get("metadata", {}).get("page", "?")
+            parts.append(f"[Page {page}] {c['text'][:400]}")
+        return "\n\n".join(parts) if parts else "No relevant information found."
+
+    context = "\n\n".join(
+        f"[Page {c['metadata'].get('page', '?')}]\n{c['text']}"
+        for c in context_chunks
+    )
+
+    prompt = f"""You are a helpful assistant. Answer the user's question using ONLY the context below.
+If the context doesn't contain enough information, say so honestly.
+Keep your answer clear and concise.
+
+Context:
+{context}
+
+Question: {query}
+
+Answer:"""
+
+    try:
+        res = _groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1024,
+            temperature=0.3,
+        )
+        return res.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Groq API error: {e}")
+        # Fall back to raw chunks on error
+        parts = []
+        for c in context_chunks:
+            page = c.get("metadata", {}).get("page", "?")
+            parts.append(f"[Page {page}] {c['text'][:400]}")
+        return "\n\n".join(parts) if parts else "Error generating answer."
 
 
 def analyze_query(query: str):
-    """Search the pre-built index and return results."""
-    query_embedding = _embedder.embed_text(query)
-    results = _retriever.retrieve(query_embedding, top_k=5)
+    """Full RAG pipeline: retrieve → generate answer."""
+    results = _retrieve(query, top_k=5)
 
-    # Build a human-readable answer from retrieved chunks
-    if results:
-        answer_parts = []
-        for r in results:
-            page = r.get("metadata", {}).get("page", "?")
-            answer_parts.append(f"[Page {page}] {r['text'][:300]}")
-        answer = "\n\n".join(answer_parts)
-    else:
-        answer = "No relevant information found in the document."
+    answer = _generate_answer(query, results)
 
     return {
         "intent": "document_query",

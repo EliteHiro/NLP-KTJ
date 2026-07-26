@@ -1,6 +1,6 @@
 # --- Core backend ---
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
 python-dotenv
 
@@ -8,12 +8,9 @@ python-dotenv
 pypdf
 
 # --- NLP / RAG ---
-langchain
-langchain-community
-sentence-transformers
-faiss-cpu
+scikit-learn
+groq
 
 # --- Utils ---
 numpy
-scikit-learn
 tqdm

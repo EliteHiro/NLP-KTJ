@@ -3,7 +3,7 @@ import uvicorn
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    debug = os.environ.get("DEBUG", "true").lower() == "true"
+    debug = os.environ.get("DEBUG", "false").lower() == "true"
 
     uvicorn.run(
         "app.main:app",
