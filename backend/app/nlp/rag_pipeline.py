@@ -15,21 +15,31 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────
 PDF_PATH = str(DATA_DIR / "Annual-Report-2024-25.pdf")
 
-logger.info("Loading PDF and building TF-IDF index...")
-_loader = PDFLoader(PDF_PATH)
-_documents = _loader.load()
+_tfidf_matrix = None
+_vectorizer = None
+_chunks = []
+_groq_client = None
 
-_chunker = Chunker(chunk_size=800, chunk_overlap=150)
-_chunks = _chunker.chunk_documents(_documents)
-_chunk_texts = [c["text"] for c in _chunks]
+def _initialize_index():
+    global _tfidf_matrix, _vectorizer, _chunks, _groq_client
+    if _tfidf_matrix is not None:
+        return
 
-_vectorizer = TfidfVectorizer(stop_words="english", max_features=10000)
-_tfidf_matrix = _vectorizer.fit_transform(_chunk_texts)
-logger.info(f"TF-IDF index ready: {len(_chunks)} chunks indexed.")
+    logger.info("Loading PDF and building TF-IDF index...")
+    _loader = PDFLoader(PDF_PATH)
+    _documents = _loader.load()
 
-# ── Groq client ──────────────────────────────────────
-_groq_key = os.environ.get("GROQ_API_KEY", "")
-_groq_client = Groq(api_key=_groq_key) if _groq_key else None
+    _chunker = Chunker(chunk_size=800, chunk_overlap=150)
+    _chunks = _chunker.chunk_documents(_documents)
+    _chunk_texts = [c["text"] for c in _chunks]
+
+    _vectorizer = TfidfVectorizer(stop_words="english", max_features=10000)
+    _tfidf_matrix = _vectorizer.fit_transform(_chunk_texts)
+    logger.info(f"TF-IDF index ready: {len(_chunks)} chunks indexed.")
+
+    # ── Groq client ──────────────────────────────────────
+    _groq_key = os.environ.get("GROQ_API_KEY", "")
+    _groq_client = Groq(api_key=_groq_key) if _groq_key else None
 
 
 def _retrieve(query: str, top_k: int = 5):
@@ -96,6 +106,7 @@ Answer:"""
 
 def analyze_query(query: str):
     """Full RAG pipeline: retrieve → generate answer."""
+    _initialize_index()
     results = _retrieve(query, top_k=5)
 
     answer = _generate_answer(query, results)
